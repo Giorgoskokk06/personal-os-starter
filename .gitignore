@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# Local Runtime State (keep state.example/ tracked)
+state/
+reports/
+*.tmp
+*.conflict_*
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,25 @@
+# Example Off-Hours Personal Study & Open-Source R&D Priorities (Synthetic Placeholder)
+# Copy this directory to `state/` before running locally: cp -r state.example state
+
+last_calibrated: "2026-01-15"
+
+capacity_model:
+  # Spare-time evening/weekend pool (supports configurable 12.0h-21.0h/week hard cap at rho <= 0.75)
+  discretionary_pool_hours: 20.0
+  max_utilization_rho: 0.75
+  hard_deep_work_cap_hours: 15.0
+  committed_deep_work_hours: 12.0
+
+active_sprint:
+  pillar_a_systems:
+    allocated_hours: 2.0
+    focus: "PostgreSQL pgvector indexing benchmarks and schema backup hygiene"
+  pillar_b_open_source:
+    allocated_hours: 3.5
+    focus: "Open-source documentation polish, CLI ergonomics, and CI test coverage"
+  pillar_c_engineering:
+    allocated_hours: 4.5
+    focus: "Independent systems R&D prototypes and benchmark validation"
+  pillar_d_health:
+    allocated_hours: 2.0
+    focus: "Strength training 3x/week and consistent 8h sleep schedule"

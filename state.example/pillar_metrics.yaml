@@ -1,0 +1,15 @@
+# Example Spare-Time Budget & Capex Shield Metrics (Synthetic Placeholder)
+# Copy this directory to `state/` before running locally: cp -r state.example state
+
+financial_shield:
+  current_runway_eur: 4500.0
+  target_runway_eur: 10000.0
+  hardware_unlock_gate_open: false
+
+spare_time_rd:
+  open_source_weekly_target_hours: 8.0
+  ci_green_streak_target: 30
+
+health_baseline:
+  weekly_training_sessions_target: 3
+  sleep_target_hours: 8.0
