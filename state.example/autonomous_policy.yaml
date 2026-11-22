@@ -1,0 +1,177 @@
+# Example Autonomous Operations Policy (Synthetic Placeholder)
+# Copy this directory to `state/` before running locally: cp -r state.example state
+
+schema_version: "1.0"
+deployment_host: "linux_control_vm"
+
+guardrails:
+  telegram_mode: "notifications_only"
+  auto_merge_main: false
+  max_draft_prs_per_week: 2
+  noop_is_success: true
+  financial_shield_runway_eur: 10000.0
+  exclude_corporate_scope: true
+  staleness_threshold_days: 7
+  daily_telegram_cap: 6
+  recency_window_days: 14
+  max_releases_per_repo: 1
+  skip_prereleases: true
+  telegram_ste180_mode: true
+  telegram_silent_by_default: true
+  corporate_blocklist_terms:
+    - "nda_dataset"
+    - "pii_record"
+    - "secret_key_material"
+    - "restricted_contract"
+  hardware_blocklist_terms:
+    - "mac mini"
+    - "rtx "
+    - "gpu deal"
+    - "laptop deal"
+    - "buy hardware"
+    - "gadget review"
+
+financial_targets:
+  runway_target_eur: 10000.0
+  runway_deadline: "2026-12-31"
+
+schedules:
+  pos-auto-s1:
+    job: "s1"
+    on_calendar: "Mon..Sat *-*-* 08,18:30:00"
+    description: "Local State & Inbox Sentinel"
+  pos-auto-s4:
+    job: "s4"
+    on_calendar: "*-*-* 04:00:00"
+    description: "Repository Self-Health & AST Drift Sentinel"
+  pos-auto-scouts:
+    job: "scouts"
+    on_calendar: "Mon,Thu *-*-* 06:00:00"
+    description: "Short-Term & Long-Term Intelligence Scouts"
+  pos-auto-draft-pr:
+    job: "draft-pr-factory"
+    on_calendar: "Sat *-*-* 07:30:00"
+    description: "Isolated Worktree Draft PR Factory (fail-silent)"
+  pos-auto-wed:
+    job: "wed-digest"
+    on_calendar: "Wed *-*-* 09:00:00"
+    description: "Wednesday Tactical Digest"
+  pos-auto-sat:
+    job: "sat-digest"
+    on_calendar: "Sat *-*-* 09:00:00"
+    description: "Saturday Deep R&D Synthesis Digest"
+  pos-auto-sun:
+    job: "sun-digest"
+    on_calendar: "Sun *-*-* 18:00:00"
+    description: "Sunday Weekly Executive & Runway Digest"
+
+streams:
+  S1:
+    id: "S1"
+    name: "Local Inbox & Schedule Watcher"
+    tier: "short_term"
+    cadence: "2x_daily"
+    read_only: true
+    digest_slot: "immediate"
+    keywords:
+      - "deadline"
+      - "schedule"
+      - "milestone"
+    sources:
+      - name: "Local Workspace State"
+        type: "local"
+        url: "local://state/current_priorities.yaml"
+
+  S2:
+    id: "S2"
+    name: "Financial Runway & Macro-Cost Sentinel"
+    tier: "short_term"
+    cadence: "biweekly"
+    read_only: true
+    digest_slot: "wednesday"
+    keywords:
+      - "inflation"
+      - "housing"
+      - "interest rates"
+      - "budget"
+    sources:
+      - name: "Local Metrics State"
+        type: "local"
+        url: "local://state/pillar_metrics.yaml"
+
+  S3:
+    id: "S3"
+    name: "Systems Engineering & Integration Standards"
+    tier: "short_term"
+    cadence: "biweekly"
+    read_only: true
+    digest_slot: "wednesday"
+    keywords:
+      - "pgvector"
+      - "postgresql"
+      - "index"
+      - "latency"
+      - "security"
+    sources:
+      - name: "PostgreSQL News"
+        type: "rss"
+        url: "https://www.postgresql.org/about/newsarchive.rss"
+
+  S4:
+    id: "S4"
+    name: "Repository Self-Health & AST Drift Sentinel"
+    tier: "short_term"
+    cadence: "daily"
+    read_only: true
+    digest_slot: "sunday"
+    keywords:
+      - "staleness"
+      - "kingman"
+      - "runway"
+      - "audit"
+    sources:
+      - name: "Local Repository Health"
+        type: "local"
+        url: "local://src/"
+
+  L1:
+    id: "L1"
+    name: "Control Theory, Grey-Box Modeling & Systems R&D"
+    tier: "long_term"
+    cadence: "biweekly"
+    read_only: true
+    digest_slot: "saturday"
+    keywords:
+      - "grey-box"
+      - "UKF"
+      - "unscented kalman"
+      - "physics-informed"
+      - "digital twin"
+      - "state estimation"
+    sources:
+      - name: "arXiv eess.SY (Systems and Control)"
+        type: "rss"
+        url: "https://export.arxiv.org/rss/eess.SY"
+
+  L3:
+    id: "L3"
+    name: "Agentic AI Protocols & Core Stack Releases"
+    tier: "long_term"
+    cadence: "biweekly"
+    read_only: true
+    digest_slot: "saturday"
+    keywords:
+      - "MCP"
+      - "FastMCP"
+      - "Supabase"
+      - "pgvector"
+      - "release"
+      - "breaking change"
+      - "security"
+    sources:
+      - name: "MCP Specification Releases"
+        type: "atom"
+        url: "https://github.com/modelcontextprotocol/specification/releases.atom"
+      - name: "FastMCP Releases"
+        type: "atom"
+        url: "https://github.com/jlowin/fastmcp/releases.atom"
