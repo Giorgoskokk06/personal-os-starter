@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for Personal OS GitHub Trending & Tech Discovery Scouts
+
+[Timer]
+OnCalendar=Mon,Thu *-*-* 06:00:00
+Persistent=true
+RandomizedDelaySec=60
+Unit=pos-auto-scouts.service
+
+[Install]
+WantedBy=timers.target

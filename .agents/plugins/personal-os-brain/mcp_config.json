@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "personal-os-brain": {
+      "command": "python3",
+      "args": [
+        "src/mcp_server.py"
+      ],
+      "env": {}
+    }
+  }
+}

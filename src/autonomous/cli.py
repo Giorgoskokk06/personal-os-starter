@@ -1,8 +1,8 @@
 """
-src/autonomous/cli.py — Unified Autonomous Operations CLI.
+src/autonomous/cli.py - Unified Scheduled Worker CLI.
 
 Usage:
-    python3 -m src.autonomous.cli --job <s1|s2|s3|s4|l1|l3|wed-digest|sat-digest|sun-digest|staging-check|draft-pr-factory> [--offline] [--dry-run] [--notify] [--with-agy] [--json]
+    python3 -m src.autonomous.cli --job <s1|s2|s3|s4|l1|l3|github-scout|scouts|wed-digest|sat-digest|sun-digest|staging-check|draft-pr-factory> [--offline] [--dry-run] [--notify] [--with-agy] [--json]
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 from src.autonomous import REPO_ROOT, load_policy
 from src.autonomous.agy_bridge import run_agy_draft_pr_factory, run_agy_synthesis
 from src.autonomous.critic import classify_item, sanitize_ste180_telegram, synthesize_digest
-from src.autonomous.scouts import filter_scout_items, run_scout
+from src.autonomous.scouts import filter_scout_items, run_github_scout, run_scout
 from src.autonomous.sentinels import (
     run_s1_state_watcher,
     run_s2_runway_sentinel,
@@ -32,6 +32,8 @@ JOB_CHOICES = (
     "s4",
     "l1",
     "l3",
+    "github-scout",
+    "scouts",
     "wed-digest",
     "sat-digest",
     "sun-digest",
@@ -62,28 +64,62 @@ def _run_scout_with_critic(
     cache_dir: Path,
     raw_dir: Path,
 ) -> dict[str, Any]:
-    scout_res = run_scout(
-        stream_id,
-        policy=policy,
-        offline=offline,
-        cache_dir=cache_dir,
-        raw_dir=raw_dir,
+    scout_res = (
+        run_github_scout(
+            policy=policy,
+            offline=offline,
+            cache_dir=cache_dir,
+            raw_dir=raw_dir,
+        )
+        if stream_id.upper() == "GITHUB"
+        else run_scout(
+            stream_id,
+            policy=policy,
+            offline=offline,
+            cache_dir=cache_dir,
+            raw_dir=raw_dir,
+        )
     )
     classified = [
         classify_item(item, policy=policy, current_runway_eur=current_runway_eur)
         for item in scout_res.get("items", [])
     ]
     kept = [c for c in classified if c["verdict"] != "DROP"]
-    upgrades = [c for c in kept if c["verdict"] == "OS_UPGRADE_CANDIDATE"]
+    dropped = [c for c in classified if c["verdict"] == "DROP"]
+    upgrades = sorted(
+        [c for c in kept if c["verdict"] == "OS_UPGRADE_CANDIDATE"],
+        key=lambda c: float(c.get("score", 0.0)),
+        reverse=True,
+    )
+    briefs = [c for c in kept if c["verdict"] == "INTEL_BRIEF"]
+    drop_reasons: dict[str, int] = {}
+    for d in dropped:
+        reason = str(d.get("reason") or "dropped")
+        drop_reasons[reason] = drop_reasons.get(reason, 0) + 1
+    if int(scout_res.get("ipi_blocked_count", 0)) > 0:
+        drop_reasons["ipi_quarantined_layer1"] = int(scout_res["ipi_blocked_count"])
+
     return {
         **scout_res,
         "kept_count": len(kept),
-        "dropped_count": len(classified) - len(kept),
+        "dropped_count": len(dropped),
+        "drop_reasons": drop_reasons,
+        "dropped_items": [
+            {
+                "title": d["item"].get("repo_full_name") or d["item"].get("title"),
+                "reason": d["reason"],
+            }
+            for d in dropped
+        ],
         "upgrade_candidates": upgrades,
-        "actionable": len(kept) > 0,
+        "intel_briefs": briefs,
+        "actionable": len(upgrades) > 0 if stream_id.upper() == "GITHUB" else len(kept) > 0,
         "summary": (
             f"Scout {stream_id} ({scout_res.get('mode')}): "
-            f"{len(kept)} kept, {len(classified) - len(kept)} dropped."
+            f"{len(upgrades)} upgrade candidates, {len(briefs)} brief(s), "
+            f"{len(dropped)} critic-dropped, {scout_res.get('ipi_blocked_count', 0)} IPI-quarantined."
+            if stream_id.upper() == "GITHUB"
+            else f"Scout {stream_id} ({scout_res.get('mode')}): {len(kept)} kept, {len(dropped)} dropped."
         ),
     }
 
@@ -124,7 +160,7 @@ def _build_notification_html(job: str, result: dict[str, Any]) -> str:
         failed_str = ", ".join(failed) if failed else "health check"
         return sanitize_ste180_telegram(
             f"• Health check failure ({failed_str}) -> Regression risk -> Inspect pytest/AST.",
-            title="Personal OS — Repo Health",
+            title="Personal OS - Repo Health",
         )
 
     summary = str(result.get("summary") or "").strip()
@@ -132,7 +168,7 @@ def _build_notification_html(job: str, result: dict[str, Any]) -> str:
         return ""
     return sanitize_ste180_telegram(
         f"• {summary} -> Review -> Confirm.",
-        title=f"Personal OS — {job.upper()}",
+        title=f"Personal OS - {job.upper()}",
     )
 
 
@@ -225,6 +261,45 @@ def execute_job(
             cache_dir=cache_dir,
             raw_dir=raw_dir,
         )
+    elif job == "github-scout":
+        result = _run_scout_with_critic(
+            "GITHUB",
+            policy=policy,
+            offline=offline,
+            current_runway_eur=current_runway_eur,
+            cache_dir=cache_dir,
+            raw_dir=raw_dir,
+        )
+    elif job == "scouts":
+        stream_reports = {
+            sid: _run_scout_with_critic(
+                sid,
+                policy=policy,
+                offline=offline,
+                current_runway_eur=current_runway_eur,
+                cache_dir=cache_dir,
+                raw_dir=raw_dir,
+            )
+            for sid in ("GITHUB", "S3", "L1", "L3")
+        }
+        all_upgrades = [
+            cand
+            for rep in stream_reports.values()
+            for cand in rep.get("upgrade_candidates", [])
+        ]
+        total_kept = sum(int(rep.get("kept_count", 0)) for rep in stream_reports.values())
+        total_dropped = sum(int(rep.get("dropped_count", 0)) for rep in stream_reports.values())
+        result = {
+            "streams": stream_reports,
+            "kept_count": total_kept,
+            "dropped_count": total_dropped,
+            "upgrade_candidates": all_upgrades,
+            "actionable": len(all_upgrades) > 0,
+            "summary": (
+                f"Scouts complete: {len(all_upgrades)} OS upgrade candidates, "
+                f"{total_kept} kept across 4 streams ({total_dropped} dropped)."
+            ),
+        }
     elif job == "s4":
         result = run_s4_repo_health(offline=offline, run_pytest=not dry_run)
     elif job in {"wed-digest", "sat-digest", "sun-digest"}:
@@ -286,9 +361,9 @@ def execute_job(
                 report_updated = True
 
         digest_title = {
-            "wednesday": "Personal OS — Wednesday Digest",
-            "saturday": "Personal OS — Saturday Digest",
-            "sunday": "Personal OS — Sunday Digest",
+            "wednesday": "Personal OS - Wednesday Digest",
+            "saturday": "Personal OS - Saturday Digest",
+            "sunday": "Personal OS - Sunday Digest",
         }[digest_type]
 
         sentinel_actionable = any(
@@ -440,6 +515,31 @@ def execute_job(
     }
 
 
+def _print_human_summary(job: str, payload: dict[str, Any]) -> None:
+    res = payload["result"]
+    summary = res.get("summary") or f"actionable={payload['actionable']}"
+    notif_status = payload["notification"].get("status")
+    print(f"[{job}] {summary} (notify={notif_status})")
+
+    upgrades = res.get("upgrade_candidates") or []
+    if upgrades:
+        print("\nOS Upgrade Candidates:")
+        for cand in upgrades:
+            it = cand.get("item", {})
+            name = it.get("repo_full_name") or it.get("title") or "Candidate"
+            target = cand.get("target_module") or "src/autonomous/"
+            proposal = cand.get("integration_proposal") or ""
+            print(f"  - {name} (score={cand.get('score')}) -> {target}")
+            if proposal:
+                print(f"    Proposal: {proposal}")
+
+    dropped_items = res.get("dropped_items") or []
+    if dropped_items:
+        print("\nFiltered Noise / Drops:")
+        for d in dropped_items:
+            print(f"  - {d.get('title')} [{d.get('reason')}]")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Personal OS Autonomous Operations CLI")
     parser.add_argument("--job", required=True, choices=JOB_CHOICES, help="Autonomous job to execute")
@@ -461,9 +561,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        summary = payload["result"].get("summary") or f"actionable={payload['actionable']}"
-        notif_status = payload["notification"].get("status")
-        print(f"[{args.job}] {summary} (notify={notif_status})")
+        _print_human_summary(args.job, payload)
 
     return 0
 

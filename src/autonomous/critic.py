@@ -1,12 +1,12 @@
 """
-src/autonomous/critic.py — Deterministic Safety Critic & Digest Synthesizer.
+src/autonomous/critic.py - Deterministic Safety Critic & Digest Builder.
 
 Enforces:
 - OWASP IPI quarantine drop
 - Confidentiality & PII Scope Filter (zero restricted datasets, PII records, or secret material)
 - Financial Shield Hardware blocklist while liquid runway is below target
-- Stream keyword relevance scoring & L3 OS upgrade candidate detection
-- Compact STE-180 (Simplified Technical Express — <=180 words signal-to-action brief) Silent-by-Default Telegram HTML formatting + Markdown archive + Nonce-isolated review packet
+- Stream keyword relevance scoring & L3/GitHub OS upgrade candidate detection
+- Short Telegram summary formatting (<= 180 words, quiet by default), Markdown archive, and nonce-isolated review packet
 """
 
 from __future__ import annotations
@@ -41,6 +41,80 @@ DEFAULT_HARDWARE_BLOCKLIST = (
     "pc build deal",
 )
 
+DEFAULT_GITHUB_SPAM_TERMS = (
+    "awesome-",
+    "awesome list",
+    "cheatsheet",
+    "cheat-sheet",
+    "tutorial",
+    "roadmap",
+    "interview-questions",
+    "for-beginners",
+    "course-notes",
+    "100-days",
+    "chatgpt-prompts",
+    "free-books",
+)
+
+DEFAULT_GITHUB_SIGNAL_KEYWORDS = (
+    "mcp",
+    "fastmcp",
+    "pgvector",
+    "halfvec",
+    "hybrid search",
+    "hybrid-search",
+    "rrf",
+    "ast",
+    "skeleton",
+    "worktree",
+    "sandbox",
+    "guardrail",
+    "prompt injection",
+    "state estimation",
+    "kalman",
+    "local-first",
+    "orchestration",
+    "benchmark",
+    "telemetry",
+)
+
+DEFAULT_ALLOWED_LICENSES = frozenset(
+    {"mit", "apache-2.0", "bsd-3-clause", "bsd-2-clause", "isc", "mpl-2.0"}
+)
+
+_GITHUB_MODULE_MAP: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (
+        ("ast", "skeleton", "tree-sitter", "repo-map", "repo map", "symbol"),
+        "src/skeletonizer.py",
+        "Evaluate token-budgeted AST symbol extraction and incremental caching improvements.",
+    ),
+    (
+        ("pgvector", "halfvec", "hnsw", "hybrid search", "hybrid-search", "rrf", "postgresql"),
+        "src/db/supabase_repo.py",
+        "Benchmark halfvec indexing, RRF fusion weights, and query P50/P99 latency probes.",
+    ),
+    (
+        ("mcp", "fastmcp", "stdio"),
+        "src/mcp_server.py",
+        "Inspect stdio tool contracts, schema validation, and deterministic guard hooks.",
+    ),
+    (
+        ("prompt injection", "ipi", "sanitizer", "worktree", "sandbox", "guardrail"),
+        "src/autonomous/ / src/security/sanitizer.py",
+        "Harden untrusted payload isolation, StagingGate worktree guards, and critic heuristics.",
+    ),
+    (
+        ("local-first", "occ", "sync", "yaml"),
+        "src/state_sync.py",
+        "Review OCC version-conflict ergonomics and atomic local state synchronization.",
+    ),
+    (
+        ("kalman", "ukf", "state estimation", "telemetry", "benchmark"),
+        "src/autonomous/scouts.py",
+        "Adopt telemetry scoring and deterministic benchmark validation helpers.",
+    ),
+)
+
 UPGRADE_TRIGGER_TERMS = ("security", "release", "breaking", "latency", "spec")
 VALID_DIGEST_TYPES = frozenset({"wednesday", "saturday", "sunday"})
 MAX_ITEMS_PER_STREAM = 5
@@ -50,17 +124,13 @@ def _safe_escape_html(text: str) -> str:
     return TelegramNotifier.escape_html(str(text or ""))
 
 
-def classify_item(
+def _check_safety_blocklists(
     item: dict[str, Any],
     *,
-    policy: dict[str, Any],
+    guardrails: dict[str, Any],
     current_runway_eur: float,
-) -> dict[str, Any]:
-    """
-    Deterministically classify a scout item against safety guardrails and stream keywords.
-
-    Returns {"verdict": str, "reason": str, "score": float, "item": item}.
-    """
+) -> dict[str, Any] | None:
+    """Enforce OWASP IPI quarantine, Confidentiality/PII scope, and Financial Shield."""
     if item.get("ipi_flagged") is True:
         return {
             "verdict": "DROP",
@@ -69,15 +139,10 @@ def classify_item(
             "item": item,
         }
 
-    guardrails = policy.get("guardrails", {})
-    if not isinstance(guardrails, dict):
-        guardrails = {}
-
     title = str(item.get("title", "") or "")
     summary = str(item.get("summary", "") or "")
     searchable = f"{title} {summary}".lower()
 
-    # Confidentiality & PII Scope Filter
     if guardrails.get("exclude_confidential_scope", guardrails.get("exclude_corporate_scope", True)):
         scope_terms = guardrails.get(
             "confidential_blocklist_terms",
@@ -105,6 +170,187 @@ def classify_item(
                     "score": 0.0,
                     "item": item,
                 }
+
+    return None
+
+
+def _resolve_github_target_module(
+    searchable: str,
+    item: dict[str, Any],
+) -> tuple[str, str]:
+    hint_mod = str(item.get("target_module_hint") or "").strip()
+    hint_prop = str(item.get("integration_hint") or "").strip()
+
+    for triggers, mod, default_prop in _GITHUB_MODULE_MAP:
+        if any(tok in searchable for tok in triggers):
+            return (hint_mod or mod, hint_prop or default_prop)
+
+    if hint_mod:
+        return (
+            hint_mod,
+            hint_prop or f"Evaluate integration opportunity for {hint_mod}.",
+        )
+    return (
+        "src/autonomous/",
+        "Review architectural pattern for modular integration into the autonomous pipeline.",
+    )
+
+
+def classify_github_repo(
+    item: dict[str, Any],
+    *,
+    policy: dict[str, Any],
+    current_runway_eur: float,
+) -> dict[str, Any]:
+    """
+    Deterministically filter and score discovered GitHub repositories.
+
+    Drops archived/forked repos, below-threshold stars, incompatible licenses,
+    and hype/awesome-list/tutorial spam while promoting high-signal engineering
+    repos to `OS_UPGRADE_CANDIDATE` with a Personal OS target module proposal.
+    """
+    guardrails = policy.get("guardrails", {})
+    if not isinstance(guardrails, dict):
+        guardrails = {}
+
+    blocked = _check_safety_blocklists(
+        item, guardrails=guardrails, current_runway_eur=current_runway_eur
+    )
+    if blocked is not None:
+        return blocked
+
+    if item.get("archived") or item.get("fork"):
+        return {
+            "verdict": "DROP",
+            "reason": "github_archived_or_fork",
+            "score": 0.0,
+            "item": item,
+        }
+
+    gh_cfg = policy.get("github_discovery", {})
+    if not isinstance(gh_cfg, dict):
+        gh_cfg = {}
+
+    min_stars = int(gh_cfg.get("min_stars", 50))
+    stars = int(item.get("stars") or 0)
+    if stars < min_stars:
+        return {
+            "verdict": "DROP",
+            "reason": "github_below_min_stars",
+            "score": 0.0,
+            "item": item,
+        }
+
+    topics = item.get("topics") or []
+    topics_str = " ".join(str(t) for t in topics if isinstance(t, str))
+    repo_name = str(item.get("repo_full_name") or item.get("title") or "")
+    summary = str(item.get("summary") or "")
+    searchable = f"{repo_name} {summary} {topics_str}".lower()
+
+    spam_terms = gh_cfg.get("spam_noise_terms", DEFAULT_GITHUB_SPAM_TERMS)
+    for spam in spam_terms or []:
+        spam_norm = str(spam).strip().lower()
+        if spam_norm and spam_norm in searchable:
+            return {
+                "verdict": "DROP",
+                "reason": "github_low_signal_hype",
+                "score": 0.0,
+                "item": item,
+            }
+
+    allowed_raw = gh_cfg.get("allowed_licenses")
+    allowed_licenses = (
+        {str(lic).strip().lower() for lic in allowed_raw if str(lic).strip()}
+        if isinstance(allowed_raw, list) and allowed_raw
+        else set(DEFAULT_ALLOWED_LICENSES)
+    )
+    repo_license = str(item.get("license") or "").strip().lower()
+    if repo_license and repo_license not in {"noassertion", "none"} and repo_license not in allowed_licenses:
+        return {
+            "verdict": "DROP",
+            "reason": "github_incompatible_license",
+            "score": 0.0,
+            "item": item,
+        }
+
+    signal_kws = gh_cfg.get("signal_keywords", DEFAULT_GITHUB_SIGNAL_KEYWORDS)
+    matched_signals: set[str] = set()
+    for kw in signal_kws or []:
+        kw_norm = str(kw).strip().lower()
+        if kw_norm and kw_norm in searchable:
+            matched_signals.add(kw_norm)
+
+    language = str(item.get("language") or "").strip().lower()
+    star_bonus = 1.0 if stars >= 500 else (0.5 if stars >= 150 else 0.0)
+    lang_bonus = 0.5 if language in {"python", "typescript", "sql", "rust", "go"} else 0.0
+    score = round(float(len(matched_signals)) + star_bonus + lang_bonus, 2)
+
+    target_module, integration_proposal = _resolve_github_target_module(searchable, item)
+
+    if len(matched_signals) >= 2 and score >= 2.5:
+        return {
+            "verdict": "OS_UPGRADE_CANDIDATE",
+            "reason": "github_high_signal_upgrade",
+            "score": score,
+            "matched_signals": sorted(matched_signals),
+            "target_module": target_module,
+            "integration_proposal": integration_proposal,
+            "item": item,
+        }
+
+    if len(matched_signals) >= 1:
+        return {
+            "verdict": "INTEL_BRIEF",
+            "reason": "github_relevant_watch",
+            "score": score,
+            "matched_signals": sorted(matched_signals),
+            "target_module": target_module,
+            "integration_proposal": integration_proposal,
+            "item": item,
+        }
+
+    return {
+        "verdict": "DROP",
+        "reason": "github_low_relevance",
+        "score": score,
+        "item": item,
+    }
+
+
+def classify_item(
+    item: dict[str, Any],
+    *,
+    policy: dict[str, Any],
+    current_runway_eur: float,
+) -> dict[str, Any]:
+    """
+    Deterministically classify a scout item against safety guardrails and stream keywords.
+
+    Returns {"verdict": str, "reason": str, "score": float, "item": item}.
+    """
+    if (
+        str(item.get("source_type", "")).strip().lower() == "github_repo"
+        or str(item.get("stream_id", "")).strip().upper() == "GITHUB"
+    ):
+        return classify_github_repo(
+            item,
+            policy=policy,
+            current_runway_eur=current_runway_eur,
+        )
+
+    guardrails = policy.get("guardrails", {})
+    if not isinstance(guardrails, dict):
+        guardrails = {}
+
+    blocked = _check_safety_blocklists(
+        item, guardrails=guardrails, current_runway_eur=current_runway_eur
+    )
+    if blocked is not None:
+        return blocked
+
+    title = str(item.get("title", "") or "")
+    summary = str(item.get("summary", "") or "")
+    searchable = f"{title} {summary}".lower()
 
     stream_id = str(item.get("stream_id", "") or "")
     streams = policy.get("streams", {})
@@ -371,17 +617,17 @@ def synthesize_digest(
     telegram_html = ""
     if actionable_sentinel_lines:
         clean_alerts = [
-            re.sub(r"^\[(?:S[1-4]|L[1-3]|macro)\]\s*", "", s).strip()
+            re.sub(r"^\[(?:S[1-4]|L[1-3]|macro|GITHUB)\]\s*", "", s).strip()
             for s in actionable_sentinel_lines[:3]
         ]
         alert_bullets = [f"• {a} -> Attention required -> Review." for a in clean_alerts if a]
         telegram_html = sanitize_ste180_telegram(
             "\n".join(alert_bullets),
-            title=f"Personal OS — {title_label}",
+            title=f"Personal OS - {title_label}",
         )
 
     md_lines: list[str] = [
-        f"# Personal OS — {title_label}",
+        f"# Personal OS - {title_label}",
         "",
         f"- **Date (UTC):** {today_str}",
         f"- **Generated At:** {generated_at}",
@@ -406,6 +652,10 @@ def synthesize_digest(
                 f"- **[{item.get('stream_id', 'L3')}] {item.get('title', 'Untitled')}** "
                 f"(source: {item.get('source', 'unknown')}, score: {cand['score']:.1f})"
             )
+            if cand.get("target_module"):
+                md_lines.append(f"  - Target Module: `{cand['target_module']}`")
+            if cand.get("integration_proposal"):
+                md_lines.append(f"  - Proposal: {cand['integration_proposal']}")
             if item.get("url"):
                 md_lines.append(f"  - URL: {item['url']}")
             if item.get("summary"):
@@ -424,6 +674,8 @@ def synthesize_digest(
                     f"- **{item.get('title', 'Untitled')}** "
                     f"[{entry['verdict']}, score={entry['score']:.1f}, source={item.get('source', 'unknown')}]"
                 )
+                if entry.get("target_module"):
+                    md_lines.append(f"  - Target Module: `{entry['target_module']}`")
                 if item.get("url"):
                     md_lines.append(f"  - Link: {item['url']}")
                 if item.get("summary"):
@@ -456,6 +708,7 @@ def synthesize_digest(
             "summary": entry["item"].get("summary"),
             "verdict": entry["verdict"],
             "score": entry["score"],
+            "target_module": entry.get("target_module"),
         }
         for entry in kept_items
     ]
@@ -489,4 +742,9 @@ def synthesize_digest(
     }
 
 
-__all__ = ["classify_item", "synthesize_digest", "sanitize_ste180_telegram"]
+__all__ = [
+    "classify_item",
+    "classify_github_repo",
+    "synthesize_digest",
+    "sanitize_ste180_telegram",
+]

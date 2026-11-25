@@ -1,0 +1,19 @@
+{
+  "state-sync-lifecycle": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 -m src.state_sync --pull",
+        "timeout": 15
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 -m src.state_sync --push",
+        "timeout": 15
+      }
+    ]
+  }
+}

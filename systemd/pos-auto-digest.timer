@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for Personal OS Tactical & Deep R&D Digest Synthesis
+
+[Timer]
+OnCalendar=Wed,Sat *-*-* 09:00:00
+Persistent=true
+RandomizedDelaySec=60
+Unit=pos-auto-digest.service
+
+[Install]
+WantedBy=timers.target

@@ -2,46 +2,30 @@
 
 [![CI](https://github.com/Giorgoskokk06/personal-os-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/Giorgoskokk06/personal-os-starter/actions/workflows/ci.yml)
 
-Minimal, self-contained starter kit for a local-first AI memory engine, FastMCP control plane, symbolic AST repo mapper, and 3-layer autonomous operations pipeline backed by PostgreSQL 17 (`pgvector`) and YAML state files.
+Local-first AI memory, MCP tool server, AST code skeletonizer, scheduled GitHub discovery and news filter, PostgreSQL 17 (`pgvector`) hybrid search, and a Deno Telegram webhook.
 
-Prompt rules alone are unreliable for enforcing hard limits on weekly workload, spending gates, prompt-injection isolation, or state concurrency. This repo moves those checks into deterministic Python and PostgreSQL so an agent host cannot bypass them.
+Prompt instructions alone do not enforce workload limits, spending caps, prompt-injection boundaries, or concurrent writes. This repository moves those checks into Python and PostgreSQL so an agent host cannot bypass them.
 
 ## What is included
 
-```mermaid
-flowchart LR
-    HOST["AI CLI / MCP Host"] --> MCP["FastMCP Server"]
-    HOST --> SKEL["AST Skeletonizer"]
-    HOST --> SYNC["OCC State Sync"]
-    AUTO["Autonomous Factory\n(Scouts -> Sentinels -> Critic)"] --> GATE["StagingGate & Worktree PRs"]
-    AUTO --> TG["Silent-by-Default Notifier"]
-    MCP --> STATE["Local YAML State"]
-    MCP --> NAT["Style Linter"]
-    MCP --> PG["PostgreSQL 17 + pgvector"]
-    SYNC --> PG
-```
-
-- `src/mcp_server.py` — FastMCP stdio server exposing 7 tools: `query_hybrid_memory`, `ingest_micro_card`, `get_active_facts`, `log_decision_mirror`, `verify_capacity_slack`, `edit_capacity_allocation`, and `check_runway_gate`.
-- `src/skeletonizer.py` — Zero-dependency Python AST & TypeScript signature skeletonizer (`< 25 ms` per module) to prevent context rot without stuffing whole files into prompts.
-- `src/db/supabase_repo.py` — PostgreSQL/Supabase wrapper with SHA-256 deduplication before embedding calls and Reciprocal Rank Fusion (RRF) search.
-- `src/state_sync.py` — Optimistic Concurrency Control (OCC) state synchronizer (`FOR UPDATE` version check in SQL so stale writes fail instead of clobbering newer state).
-- `src/autonomous/` — 3-layer scheduled intelligence & operations factory:
-  - `scouts.py` + `src/security/sanitizer.py` — Read-only RSS/Atom ingestion with 1 MB cap, XXE/DTD rejection, OWASP IPI filtering, recency/prerelease/release-cap guards, and ephemeral cryptographic nonce delimiters.
-  - `sentinels.py` — Deterministic local watchers (`S1` state readiness, `S2` financial runway/Kingman capacity/staleness, `S4` AST + `pytest` self-health).
-  - `critic.py` + `src/telegram_notifier.py` — Deterministic Confidentiality & PII Scope Filter, hardware guardrails, Silent-by-Default STE-180 (Simplified Technical Express — <=180 words signal-to-action brief) formatting, and `fcntl.flock` rate-capped outbound alerts.
-  - `staging_gate.py` + `agy_bridge.py` — Isolated `git worktree` Draft PR pipeline enforcing Carbon/Neon orchestration (`ValueError` on `flash`/`flash_lite` delegation), forbidden-path locks, and fail-silent rollback.
-- `src/drive_client.py` — Sanitized Google Drive artifact uploader (with path-traversal-safe filename sanitization) and pure-Python Gemini public share link RPC decoder.
-- `src/stylistics/naturalizer.py` — Zero-LLM technical style linter scrubbing verbose boilerplate phrasing and measuring sentence-length variance (`CV`) and Type-Token Ratio.
-- `supabase/migrations/` — SQL migrations defining `knowledge_cards` (`halfvec(768)` HNSW + multilingual `'simple'` GIN FTS + `match_knowledge_hybrid`), `executive_state` (OCC upsert), and `user_facts` (JSONB history on contradiction).
-- `scripts/audit_public.py` — Zero-dependency scanner that checks for secrets, blocked paths, and custom private markers before publishing.
-
-## Design notes
-
-- **Half-precision vector indexing (`halfvec(768)`):** Storing 16-bit floats cuts HNSW memory usage in half (`1,536` vs. `3,072 bytes/row`) while blending semantic and full-text rank via Reciprocal Rank Fusion (`k = 50`, `w_vec = 1.5`, `w_fts = 1.0`).
-- **Kingman queuing capacity guard:** Expected queuing delay grows with `rho / (1 - rho)`. `verify_capacity_slack` and `edit_capacity_allocation` enforce `rho <= 0.75` for off-hours personal study & open-source R&D (`12.0h–21.0h/week` configurable spare-time budget; `15.0h` cap out of a `20.0h` evening/weekend pool in `state.example/`, keeping `5.0h` slack) and return `HARD_BLOCK` without modifying `state/current_priorities.yaml` on overflow.
-- **Orchestration & anti-sycophancy discipline:** See [AGENTS.example.md](AGENTS.example.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the Carbon orchestrator / Neon worker policy lock and closed-laptop serverless webhook architecture.
+- **FastMCP Control Plane (`src/mcp_server.py`):** Exposes 7 stdio tools (`query_hybrid_memory`, `ingest_micro_card`, `get_active_facts`, `log_decision_mirror`, `verify_capacity_slack`, `edit_capacity_allocation`, `check_runway_gate`) enforcing workload buffers (`rho <= 0.75`) and spending gates in Python.
+- **3-Step Memory Ingestion Pipeline (`src/gates/`):**
+  - `gate1_heuristics.py`: Zero-LLM filter dropping short/trivial inputs, secret leaks, and already-ingested thread hashes.
+  - `gate2_llm_distiller.py`: Structured knowledge-card and fact extraction with middle-out token truncation and deterministic fallback.
+  - `gate3_validator.py`: Pydantic schema validation, summary length checks, and deduplication before database writes.
+- **PostgreSQL 17 + `pgvector` Hybrid Search (`supabase/migrations/`, `src/db/supabase_repo.py`):** Stores `halfvec(768)` embeddings with an HNSW index plus a GIN full-text column blended via Reciprocal Rank Fusion (`k = 50`), SHA-256 deduplication before embedding calls, JSONB fact contradiction history, and `FOR UPDATE` versioned state sync (`src/state_sync.py`).
+- **AST Repo Mapper (`src/skeletonizer.py`):** Zero-dependency Python AST and TypeScript signature skeletonizer (`< 25 ms` per module) to fit large codebases inside tight token budgets.
+- **Scheduled Background Worker (`src/autonomous/`, `scripts/setup_autonomous_timers.sh`, `systemd/`):**
+  - `scouts.py` + `src/security/sanitizer.py`: Queries the GitHub Search REST API and RSS/Atom feeds with a 1 MB response cap, XML DOCTYPE/ENTITY rejection, HTML/BiDi normalization, prompt-injection blocking, and cryptographic nonce delimiters.
+  - `critic.py`: Filters out awesome-lists, tutorials, archived/forked repos, and incompatible licenses; maps passing repos to concrete `OS_UPGRADE_CANDIDATE` target-module proposals.
+  - `sentinels.py`, `staging_gate.py`, `agy_bridge.py`: Checks local state, workload/budget thresholds, and repo health; sends short Telegram summaries (`<= 180 words`, quiet by default via `src/telegram_notifier.py`); runs approved upgrades in an isolated `git worktree` and opens `--draft` PRs only after tests and audits pass.
+- **News & Macro Signal Filter (`src/intel_radar.py`, `state.example/geopolitical_baseline.yaml`):** Fetches 6 international news and market feeds in parallel, accounts for negated headlines (such as `"no escalation"` or `"ceasefire talks"`), checks market spreads against clickbait, and labels `[LIVE]` vs `[ARCHIVE FALLBACK]` items honestly.
+- **Serverless Telegram Webhook (`supabase/functions/telegram/`):** Deno/TypeScript `grammY` bot with pre-cached `botInfo` (zero cold-start `getMe` roundtrip), webhook secret and user ID checks, `/remember`, `/search`, `/radar`, `/status`, `/help` commands, and background ingestion via `EdgeRuntime.waitUntil()`.
+- **Agent Configuration & Security Gates (`.agents/`, `scripts/audit_public.py`, `tests/evals/`):** Includes 4 compact subagent specs, 3 skill guides, session sync hooks, a pre-publish secret/PII scanner, and automated prompt-budget tests.
 
 ## Quickstart
+
+All Python and Deno unit tests and offline CLI workflows run locally with zero external API keys or database setup:
 
 ```bash
 git clone https://github.com/Giorgoskokk06/personal-os-starter.git
@@ -54,15 +38,30 @@ pip install -r requirements.txt
 cp -r state.example state
 cp .env.example .env
 
+# 1. Run all unit, security, and prompt-budget tests
 pytest -v
+
+# 2. Run the Deno webhook test (if Deno is installed)
+deno test --allow-env supabase/functions/telegram/grammy.deno.ts
+
+# 3. Check repository hygiene (secrets, blocked paths, private markers)
 python3 scripts/audit_public.py
 ```
 
-Try the AST skeletonizer and offline autonomous factory smoke run (zero network I/O):
+### Try the CLI tools offline
 
 ```bash
+# GitHub repository discovery -> noise filter -> Personal OS upgrade candidates
+python3 -m src.autonomous.cli --job github-scout --offline --json
+
+# 6-cluster macro & news signal filter (offline baseline mode)
+python3 -m src.intel_radar --offline
+
+# Preview portable systemd user timers without modifying your system
+bash scripts/setup_autonomous_timers.sh --dry-run
+
+# Generate a token-budgeted AST map of src/ (<25 ms)
 python3 -m src.skeletonizer src --budget 1200 --markdown
-python3 -m src.autonomous.cli --job sat-digest --offline --dry-run --json
 ```
 
 Run the MCP server over stdio:
@@ -73,7 +72,7 @@ python3 src/mcp_server.py
 
 ### Database migrations
 
-Apply the three SQL files in order on PostgreSQL 17 with `pgvector >= 0.7.0`:
+Apply the three SQL migrations in order on PostgreSQL 17 with `pgvector >= 0.7.0`:
 
 ```text
 supabase/migrations/20261016000001_hybrid_rag_schema.sql
@@ -84,22 +83,31 @@ supabase/migrations/20261102000000_user_facts.sql
 ## Repository layout
 
 ```text
-docs/ARCHITECTURE.md         # System design, Carbon/Neon policy & Edge webhook pattern
-AGENTS.example.md            # Sanitized multi-agent orchestration & guardrail template
+.agents/                     # Hooks, MCP plugin config, 4 subagents, and 3 skills
+.github/workflows/ci.yml     # Pytest, Deno test, audit_public.py, and CLI smoke checks
+AGENTS.example.md            # Compact workspace rules and delegation template
+docs/ARCHITECTURE.md         # System design, database layout, and webhook flow
+scripts/
+  audit_public.py            # Pre-publish secret, blocked-path, and PII marker scanner
+  setup_autonomous_timers.sh # Portable systemd user timer generator (--dry-run supported)
 src/
-  mcp_server.py              # FastMCP server (7 tools)
-  skeletonizer.py            # Sub-25ms Python AST & TypeScript repo-map generator
-  state_sync.py              # OCC state sync & HUD builder
-  telegram_notifier.py       # Outbound-only flock-guarded Telegram notifier
+  mcp_server.py              # FastMCP stdio server (7 tools)
+  skeletonizer.py            # Python AST & TypeScript signature mapper
+  state_sync.py              # Versioned OCC state sync & local status summary
+  intel_radar.py             # 6-cluster macro & news signal filter
+  telegram_notifier.py       # Outbound-only flock-guarded Telegram sender
   drive_client.py            # Optional Drive upload & share-link RPC decoder
-  autonomous/                # 3-layer Scouts -> Sentinels -> Critic + Draft PR Factory
-  security/sanitizer.py      # HTML/BiDi normalization, OWASP IPI filter & nonce wrapping
-  db/supabase_repo.py        # Hybrid RRF retrieval & SHA-256 dedup
-  stylistics/naturalizer.py  # Deterministic style & cadence linter
-state.example/               # Synthetic YAML/Markdown templates & autonomous policy
-supabase/migrations/         # pgvector halfvec(768), OCC, and user_facts SQL
-scripts/audit_public.py      # Pre-publish secret & marker scanner
-tests/                       # Offline-safe unit & red-team IPI test suite
+  autonomous/                # GitHub/RSS scouts, local watchers, critic, worktree PR factory
+  gates/                     # 3-step memory ingestion filter (heuristics -> distill -> validate)
+  db/supabase_repo.py        # Hybrid RRF search & SHA-256 deduplication wrapper
+  security/sanitizer.py      # HTML/BiDi normalization, IPI regex filter & nonce wrapper
+  stylistics/naturalizer.py  # Deterministic style linter & sentence-cadence metrics
+state.example/               # Synthetic YAML/Markdown state, policy & baseline templates
+supabase/
+  functions/                 # Deno grammY Telegram webhook, shared core, and Deno unit test
+  migrations/                # pgvector halfvec(768), OCC executive_state, and user_facts SQL
+systemd/                     # Portable reference .service and .timer units
+tests/                       # Offline pytest suite, red-team IPI checks, and prompt-budget evals
 ```
 
 ## License

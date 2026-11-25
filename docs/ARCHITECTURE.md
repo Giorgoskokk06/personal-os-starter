@@ -1,80 +1,85 @@
 # Architecture Overview
 
-This starter kit implements a **local-first, cloud-synced agentic engineering OS** designed around four reliability problems that standard LLM chat workflows fail to solve: context rot, sycophancy, token waste, and silent state drift.
+This starter kit implements a local-first, Postgres-backed AI memory and scheduled automation system built around four practical engineering problems: context bloat, prompt rules getting ignored under load, duplicate API embedding cost, and concurrent state overwrites.
 
 ```mermaid
 flowchart TB
-    subgraph Surfaces["Two-Surface Interface"]
-        CLI["Desktop / VM CLI Host\n(Orchestrator: Carbon | Workers: Neon)"]
-        Mobile["Closed-Laptop Mobile Surface\n(Telegram Webhook / Share Link)"]
+    subgraph Surfaces["Interfaces"]
+        CLI["Local CLI & AI Host\n(MCP stdio + hooks)"]
+        TG["Mobile Telegram Webhook\n(Supabase Edge Function / Deno)"]
     end
 
-    subgraph Control["Control Plane & Deterministic Guards"]
-        MCP["FastMCP Server (src/mcp_server.py)\n• query_hybrid_memory / ingest_micro_card\n• verify_capacity_slack (Kingman rho <= 0.75)\n• check_runway_gate / log_decision_mirror"]
-        Skel["AST Skeletonizer (src/skeletonizer.py)\n• Sub-25ms repo map (<400 tokens/module)"]
-        Sync["OCC State Sync (src/state_sync.py)\n• SHA-256 diff + FOR UPDATE version lock"]
+    subgraph Control["Python Control Plane & Filters"]
+        MCP["FastMCP Server (src/mcp_server.py)\nWorkload buffer + spending gates"]
+        SKEL["AST Skeletonizer (src/skeletonizer.py)\nToken-budgeted module signatures"]
+        SYNC["State Sync (src/state_sync.py)\nSHA-256 diff + OCC version lock"]
+        GATES["3-Step Ingestion (src/gates/)\nHeuristics -> Distill -> Schema check"]
     end
 
-    subgraph Autonomous["3-Layer Autonomous Intelligence Factory (src/autonomous/)"]
-        Scouts["Layer 1: Read-Only Scouts (scouts.py)\n• 1MB cap, XXE/DTD block, OWASP IPI filter\n• Ephemeral cryptographic nonce wrapping"]
-        Sentinels["Layer 2: Deterministic Sentinels (sentinels.py)\n• S1 State Watcher, S2 Runway/Kingman, S4 Repo Health"]
-        Critic["Layer 3: Critic & Draft PR Bridge (critic.py, agy_bridge.py)\n• Silent-by-Default STE-180 (<=180w brief) alerts (telegram_notifier.py)\n• Isolated git worktree + StagingGate (--draft PRs only)"]
+    subgraph Worker["Scheduled Worker & News Filter"]
+        SCOUT["GitHub & RSS Scouts (scouts.py)\n1MB cap, XXE block, nonce isolation"]
+        CRITIC["Deterministic Filter (critic.py)\nDrop hype/spam, propose OS upgrades"]
+        PR["Worktree Draft PRs (agy_bridge.py)\nIsolated branch + test gate"]
+        RADAR["News Filter (intel_radar.py)\n6 clusters, negation + spread check"]
     end
 
     subgraph Storage["PostgreSQL 17 + pgvector"]
-        Cards[("knowledge_cards\nhalfvec(768) HNSW + GIN FTS + RRF")]
-        Facts[("user_facts\nJSONB contradiction history")]
-        Exec[("executive_state\nOCC-versioned YAML/MD")]
+        CARDS[("knowledge_cards\nhalfvec(768) HNSW + GIN FTS")]
+        FACTS[("user_facts\nJSONB change history")]
+        EXEC[("executive_state\nOCC-versioned YAML/MD")]
     end
 
     CLI <-->|"stdio"| MCP
-    CLI --> Skel
-    CLI --> Sync
-    Mobile -->|"Edge Function (Deno + grammY)"| Cards
-    MCP <--> Cards
-    MCP <--> Facts
-    Sync <--> Exec
-    Scouts --> Critic
-    Sentinels --> Critic
-    Critic -->|"Actionable signal only"| Mobile
+    CLI --> SKEL
+    CLI --> SYNC
+    TG -->|"EdgeRuntime.waitUntil"| GATES
+    GATES --> CARDS
+    MCP <--> CARDS
+    MCP <--> FACTS
+    SYNC <--> EXEC
+    SCOUT --> CRITIC
+    CRITIC --> PR
 ```
 
----
+## 1. Database Layout and Hybrid Search
 
-## 1. Multi-Agent Orchestration & Context Discipline
+* **Half-precision vector indexing (`supabase/migrations/20261016000001_hybrid_rag_schema.sql`):** `public.knowledge_cards` stores 16-bit `halfvec(768)` embeddings instead of 32-bit `vector(768)`, cutting HNSW index memory roughly in half (`1,536` vs `3,072 bytes/row`). The `match_knowledge_hybrid` SQL function blends cosine similarity and `'simple'` GIN full-text search via Reciprocal Rank Fusion (`k = 50`, `full_text_weight = 1.0`, `semantic_weight = 1.5`).
+* **Pre-embedding deduplication (`src/db/supabase_repo.py`, `src/mcp_server.py`):** `ingest_micro_card` computes a SHA-256 `thread_hash` and checks PostgreSQL before calling any embedding API.
+* **Evolving facts (`supabase/migrations/20261102000000_user_facts.sql`):** Updating an existing fact key appends the previous value and timestamp to a JSONB `history[]` array rather than overwriting history.
+* **Optimistic Concurrency Control (`src/state_sync.py`, `supabase/migrations/20261029000000_executive_state.sql`):** `upsert_executive_state_occ` locks the target row with `SELECT ... FOR UPDATE` and rejects writes when `expected_version` is stale, saving a local conflict backup instead of clobbering newer remote edits.
 
-* **Orchestrator vs. Worker Separation (`AGENTS.example.md`):** The root session runs as a lightweight coordinator (`gemini-4-carbon-medium` / `high`) while bulk file inspection, debugging, and test loops are delegated to isolated workers (`gemini-4-neon-medium` / `high`). Low-tier `flash` / `flash_lite` worker delegation is explicitly blocked (`build_agy_headless_cmd` raises `ValueError` if any `flash` model string is passed).
-* **Symbolic AST Skeletonizer (`src/skeletonizer.py`):** Instead of stuffing full source files into prompts, agents map modules via Python's stdlib `ast` (`PythonSkeletonizer`) and regex TypeScript extraction (`TypeScriptSkeletonizer`) under a configurable token budget (`--budget 1500`) in `< 25 ms`.
+## 2. 3-Step Memory Ingestion Pipeline (`src/gates/`)
 
-## 2. Hybrid Memory, Evolving Facts & OCC State Sync
+1. **Gate 1 (`gate1_heuristics.py`):** Zero-LLM filter that drops greetings, unit conversions, prompts under 40 characters, secret leaks (`ghp_`, `AKIA`, `sk-`, private keys), and already-ingested thread hashes.
+2. **Gate 2 (`gate2_llm_distiller.py`):** Formats multi-turn threads under a hard character budget using middle-out truncation (keeping metadata, the opening turn, and the final two turns), then extracts a structured `DistilledCard` across generic domains (`systems`, `backend`, `security`, `operations`, `research`, `general`) with a deterministic local fallback.
+3. **Gate 3 (`gate3_validator.py`):** Enforces Pydantic schema constraints (`value_score >= 6`, `distilled_summary >= 80 chars`, valid domain/intent enums, 768-dim embedding length) and checks hash deduplication before insert.
 
-* **Half-Precision RRF Retrieval (`supabase/migrations/20261016000001_hybrid_rag_schema.sql`, `src/db/supabase_repo.py`):** Stores `halfvec(768)` embeddings (16-bit floats, cutting HNSW memory footprint in half) alongside a bilingual `'simple'` `tsvector` GIN index, combined via Reciprocal Rank Fusion (`match_knowledge_hybrid`, `k = 50`, `w_vec = 1.5`, `w_fts = 1.0`).
-* **Pre-Embedding Deduplication:** `ingest_micro_card` checks SHA-256 `thread_hash` in PostgreSQL before calling any embedding endpoint, eliminating duplicate API calls and scrubbing boilerplate phrasing via `src/stylistics/naturalizer.py`.
-* **Evolving Fact Layer (`supabase/migrations/20261102000000_user_facts.sql`):** Contradictory updates append prior values and timestamps to a `history[]` JSONB array instead of silently overwriting history.
-* **Optimistic Concurrency Control (`src/state_sync.py`):** Local YAML/Markdown files (`state/`) synchronize with `public.executive_state` through `upsert_executive_state_occ` (`SELECT ... FOR UPDATE` version check), backing up conflicting local edits instead of clobbering newer remote state.
+## 3. Workload, Budget, and AST Context Guards
 
-## 3. Neuro-Symbolic Hard Guards (`src/mcp_server.py`)
+* **Workload & spending limits (`src/mcp_server.py`):** `verify_capacity_slack` and `edit_capacity_allocation` keep weekly side-project utilization at `rho <= 0.75` (retaining a 25% slack buffer so tasks do not queue up) and return `HARD_BLOCK` without editing YAML on overflow. `check_runway_gate` blocks non-essential hardware expenses until liquid reserves meet the target threshold.
+* **AST code skeletonizer (`src/skeletonizer.py`):** Parses Python modules via stdlib `ast` and TypeScript interfaces via regex in under `25 ms`, emitting compact signatures within a configurable `--budget` so coding agents do not burn context reading full source files.
 
-Prompt instructions alone yield when a sprint gets busy. Deterministic gates live in Python behind FastMCP tools:
+## 4. Scheduled Background Worker (`src/autonomous/`, `systemd/`)
 
-* **Kingman Capacity Guard (`verify_capacity_slack`, `edit_capacity_allocation`):** Models weekly off-hours personal study & open-source R&D queue delay scaling with $\rho / (1 - \rho)$ and enforces $\rho \le 0.75$ (configurable `12.0h–21.0h/week` spare-time budget; `15.0h` cap out of a `20.0h` evening/weekend pool in `state.example/`), returning `HARD_BLOCK` without mutating `current_priorities.yaml` on overflow.
-* **Financial Shield Gate (`check_runway_gate`):** Blocks discretionary capex/hardware categories (`HARD_BLOCK`) until `current_runway_eur >= target_runway_eur`.
+Portable `systemd --user` timers (`scripts/setup_autonomous_timers.sh`) schedule five jobs:
 
-## 4. 3-Layer Autonomous Intelligence & Scheduled Ops Factory (`src/autonomous/`)
+1. **GitHub & RSS Discovery (`scouts.py`, `src/security/sanitizer.py`):** Queries the GitHub Search REST API (`https://api.github.com/search/repositories`) and RSS/Atom feeds with a `1 MB` payload cap, XML `<!DOCTYPE` / `<!ENTITY` rejection, NFKC + BiDi control-character stripping, prompt-injection regex filtering, and ephemeral hexadecimal nonce wrapping (`<UNTRUSTED_TELEMETRY_PAYLOAD_NONCE_...>`).
+2. **Deterministic Noise Filter (`critic.py`):** Drops prompt injections, confidential scope terms, archived/forked repos, below-threshold star counts, incompatible licenses, and awesome-list/tutorial spam. High-signal engineering repositories are promoted to `OS_UPGRADE_CANDIDATE` with a target module and integration note.
+3. **Local Watchers (`sentinels.py`):** Checks local state readiness (`S1`), runway gap / workload slack / calibration freshness (`S2`), and AST + `pytest` repo health (`S4`).
+4. **Quiet-by-Default Alerts & Isolated Draft PRs (`telegram_notifier.py`, `staging_gate.py`, `agy_bridge.py`):** Sends concise Telegram alerts (`<= 180 words`) only when thresholds trigger (`fcntl.flock` ledger, 24h SHA-256 deduplication, daily rate cap). Code upgrades run inside an isolated `git worktree` on `autonomous/draft-*`, block edits to `AGENTS.md`, `src/mcp_server.py`, `.agents/`, and `supabase/migrations/`, run `pytest -v` + `audit_public.py`, and never auto-merge to `main`.
 
-Designed to run unattended via `systemd` timers on a lightweight Linux host:
+## 5. News & Macro Signal Filter (`src/intel_radar.py`)
 
-1. **Layer 1 — Read-Only Scouts (`src/autonomous/scouts.py`, `src/security/sanitizer.py`):** Fetches RSS/Atom feeds concurrently with a `1 MB` payload cap, strict `<!DOCTYPE` / `<!ENTITY` rejection (XXE defense), HTML/script/BiDi normalization, OWASP Indirect Prompt Injection pattern flagging, recency/prerelease/per-repo release filtering, and ephemeral cryptographic nonce delimiters (`<UNTRUSTED_TELEMETRY_PAYLOAD_NONCE_...>`) separating data from instructions.
-2. **Layer 2 — Deterministic Sentinels (`src/autonomous/sentinels.py`):**
-   * `S1`: Local workspace state readiness watcher.
-   * `S2`: Financial Runway gap, Kingman utilization, and state-calibration staleness monitor.
-   * `S4`: Repository health sentinel checking AST skeleton cleanliness and offline `pytest` pass status.
-3. **Layer 3 — Deterministic Critic, Silent-by-Default Alerts & Worktree Draft PR Factory (`critic.py`, `telegram_notifier.py`, `staging_gate.py`, `agy_bridge.py`):**
-   * `classify_item` drops IPI payloads, Confidentiality & PII Scope Filter matches (`nda_dataset`, `pii_record`, `secret_key_material`, `restricted_contract`), and hardware deals below the financial shield threshold before any LLM sees them.
-   * `sanitize_ste180_telegram` enforces **STE-180 (Simplified Technical Express — <=180 words signal-to-action brief)** and **Silent-by-Default** (`SILENT_NO_SIGNAL` or nominal sentinels emit `""` so raw RSS never spams Telegram) and truncates HTML-escaped bullets cleanly at word boundaries.
-   * `TelegramNotifier` (`src/telegram_notifier.py`) is strictly outbound-only with `fcntl.flock` ledger locking, 24-hour SHA-256 deduplication, and daily rate capping.
-   * `run_agy_draft_pr_factory` validates `StagingGate` (`auto_merge_main == False`, `autonomous/draft-*` branch, weekly cap via `flock`), executes changes in an isolated `git worktree`, blocks forbidden invariant paths (`AGENTS.md`, `src/mcp_server.py`, `.agents/`, `supabase/migrations/`), runs the full verification gate before opening `--draft` PRs, and fails silently to `staging_log.json` on errors.
+Fetches six global news and market clusters in parallel (`ThreadPoolExecutor` with per-feed timeouts, 1 MB cap, and XXE rejection):
 
-## 5. Closed-Laptop Serverless Webhook Pattern
+* **Negation & Acronym Handling:** Negators (`"no"`, `"rules out"`, `"denies"`) and de-escalation phrases (`"ceasefire talks"`, `"de-escalation"`) reduce panic scores, while standard acronyms (`ECB`, `OPEC`, `TSMC`, `LNG`) are exempt from all-caps penalties.
+* **4-Tier Classification:** Separates headlines into `NOISE_CLICKBAIT`, `CONTROLLED_TENSION`, `HIGH_SIGNAL_STRUCTURAL`, and `CRITICAL_ESCALATION`, pairing text analysis with market checks (10Y bond spreads, Brent crude, Dutch TTF gas).
+* **Honest Attribution:** Labels every headline `[LIVE <date>]` or `[ARCHIVE FALLBACK - not current news]` and tags state-aligned media explicitly as official posture rather than verified fact.
 
-For mobile capture when away from the terminal, a lightweight Supabase Edge Function (Deno + `grammY`) verifies the sender allowlist, runs `match_knowledge_hybrid` against the same PostgreSQL tables, dispatches quick status checks deterministically, and schedules background 3-gate micro-ingestion via `EdgeRuntime.waitUntil()`—including pure-Python/TS resolution of shared conversation links (`resolve_gemini_share_url` in `src/drive_client.py`).
+## 6. Serverless Telegram Webhook (`supabase/functions/`)
+
+For quick mobile capture away from a terminal, `supabase/functions/telegram/index.ts` runs a `grammY` webhook on Deno:
+
+* Pre-caches `botInfo` to eliminate the cold-start `getMe` HTTP roundtrip.
+* Validates `x-telegram-bot-api-secret-token` and restricts updates to `TELEGRAM_ALLOWED_USER_ID`.
+* Handles `/remember`, `/search`, `/radar`, `/status`, and `/help`, scanning for accidental secret leaks and running background `knowledge_cards` writes via `EdgeRuntime.waitUntil()`.

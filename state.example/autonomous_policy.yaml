@@ -1,7 +1,7 @@
 # Example Autonomous Operations Policy (Synthetic Placeholder)
 # Copy this directory to `state/` before running locally: cp -r state.example state
 
-schema_version: "1.0"
+schema_version: "1.1"
 deployment_host: "linux_control_vm"
 
 guardrails:
@@ -36,34 +36,91 @@ financial_targets:
   runway_deadline: "2026-12-31"
 
 schedules:
-  pos-auto-s1:
-    job: "s1"
-    on_calendar: "Mon..Sat *-*-* 08,18:30:00"
-    description: "Local State & Inbox Sentinel"
   pos-auto-s4:
     job: "s4"
     on_calendar: "*-*-* 04:00:00"
-    description: "Repository Self-Health & AST Drift Sentinel"
+    description: "Nightly Repo Self-Health & AST Drift Sentinel"
   pos-auto-scouts:
     job: "scouts"
     on_calendar: "Mon,Thu *-*-* 06:00:00"
-    description: "Short-Term & Long-Term Intelligence Scouts"
+    description: "GitHub Trending Discovery & Engineering RSS/Atom Scouts"
+  pos-auto-radar:
+    job: "intel-radar"
+    on_calendar: "*-*-* 07:45:00"
+    description: "Daily Multi-Perspective Macro & Geopolitical Radar"
   pos-auto-draft-pr:
     job: "draft-pr-factory"
     on_calendar: "Sat *-*-* 07:30:00"
     description: "Isolated Worktree Draft PR Factory (fail-silent)"
-  pos-auto-wed:
-    job: "wed-digest"
-    on_calendar: "Wed *-*-* 09:00:00"
-    description: "Wednesday Tactical Digest"
-  pos-auto-sat:
+  pos-auto-digest:
     job: "sat-digest"
-    on_calendar: "Sat *-*-* 09:00:00"
-    description: "Saturday Deep R&D Synthesis Digest"
-  pos-auto-sun:
-    job: "sun-digest"
-    on_calendar: "Sun *-*-* 18:00:00"
-    description: "Sunday Weekly Executive & Runway Digest"
+    on_calendar: "Wed,Sat *-*-* 09:00:00"
+    description: "Tactical & Deep R&D Digest Synthesis"
+
+github_discovery:
+  min_stars: 50
+  recency_days: 90
+  max_results_per_query: 5
+  allowed_licenses:
+    - "mit"
+    - "apache-2.0"
+    - "bsd-3-clause"
+    - "bsd-2-clause"
+    - "isc"
+    - "mpl-2.0"
+  spam_noise_terms:
+    - "awesome-"
+    - "awesome list"
+    - "cheatsheet"
+    - "cheat-sheet"
+    - "tutorial"
+    - "roadmap"
+    - "interview-questions"
+    - "for-beginners"
+    - "course-notes"
+    - "100-days"
+    - "chatgpt-prompts"
+    - "free-books"
+  signal_keywords:
+    - "mcp"
+    - "fastmcp"
+    - "pgvector"
+    - "halfvec"
+    - "hybrid search"
+    - "rrf"
+    - "ast"
+    - "skeleton"
+    - "worktree"
+    - "sandbox"
+    - "guardrail"
+    - "prompt injection"
+    - "state estimation"
+    - "kalman"
+    - "local-first"
+    - "orchestration"
+    - "benchmark"
+    - "telemetry"
+  queries:
+    - name: "MCP Server & Tooling"
+      query: "topic:mcp-server OR fastmcp stars:>50"
+      target_module: "src/mcp_server.py"
+      integration_hint: "Evaluate stdio tool contracts, schema validation, or sandboxed capability routing."
+    - name: "pgvector & Hybrid RRF Search"
+      query: "topic:pgvector OR \"hybrid search\" postgresql stars:>100"
+      target_module: "src/db/supabase_repo.py"
+      integration_hint: "Benchmark halfvec HNSW recall, reciprocal rank fusion weights, and index quantization."
+    - name: "Agent Orchestration & Guardrails"
+      query: "topic:agent-orchestration OR \"prompt injection\" python stars:>75"
+      target_module: "src/autonomous/ / src/security/sanitizer.py"
+      integration_hint: "Inspect isolated worktree execution, IPI quarantine heuristics, and deterministic critic rules."
+    - name: "AST Analysis & Repo Mapping"
+      query: "topic:ast-analysis OR \"repo map\" python stars:>50"
+      target_module: "src/skeletonizer.py"
+      integration_hint: "Compare token-budgeted symbol extraction, incremental AST caching, and multi-language parsing."
+    - name: "Local-First AI & OCC Memory"
+      query: "topic:local-first-ai OR \"agent memory\" stars:>80"
+      target_module: "src/state_sync.py"
+      integration_hint: "Review optimistic concurrency conflict resolution and offline-first sync patterns."
 
 streams:
   S1:

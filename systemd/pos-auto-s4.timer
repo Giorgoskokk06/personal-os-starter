@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for Personal OS Nightly Repo Self-Health & AST Drift Sentinel
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=60
+Unit=pos-auto-s4.service
+
+[Install]
+WantedBy=timers.target

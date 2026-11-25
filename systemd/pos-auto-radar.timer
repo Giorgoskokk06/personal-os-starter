@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for Personal OS Daily Multi-Perspective Macro & Geopolitical Radar
+
+[Timer]
+OnCalendar=*-*-* 07:45:00
+Persistent=true
+RandomizedDelaySec=60
+Unit=pos-auto-radar.service
+
+[Install]
+WantedBy=timers.target

@@ -16,13 +16,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
+      - name: Set up Deno 2.x
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Run offline unit and red-team tests
+      - name: Run Python unit, security, and prompt-budget tests
         run: pytest -v
+      - name: Run Deno Telegram webhook tests
+        run: deno test --allow-env supabase/functions/telegram/grammy.deno.ts
       - name: Run public security and marker audit
         run: python3 scripts/audit_public.py
-      - name: Smoke check AST skeletonizer
-        run: python3 -m src.skeletonizer src --budget 1200
+      - name: Smoke check CLI tools offline
+        run: |
+          python3 -m src.skeletonizer src --budget 1200 --markdown > /dev/null
+          python3 -m src.autonomous.cli --job github-scout --offline --json > /dev/null
+          python3 -m src.intel_radar --offline > /dev/null
+          bash scripts/setup_autonomous_timers.sh --dry-run > /dev/null

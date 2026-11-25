@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for Personal OS Weekly Isolated Worktree Draft PR Factory
+
+[Timer]
+OnCalendar=Sat *-*-* 07:30:00
+Persistent=true
+RandomizedDelaySec=60
+Unit=pos-auto-draft-pr.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,5 @@
+{
+  "name": "personal-os-brain",
+  "description": "FastMCP server exposing hybrid memory search and Python workload/budget checks.",
+  "version": "1.0.0"
+}

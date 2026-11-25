@@ -1,0 +1,10 @@
+[Unit]
+Description=Personal OS Weekly Isolated Worktree Draft PR Factory
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/personal-os-starter
+EnvironmentFile=-%h/personal-os-starter/.env
+ExecStart=/usr/bin/env python3 -m src.autonomous.cli --job draft-pr-factory
