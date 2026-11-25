@@ -1,5 +1,7 @@
 # personal-os-starter
 
+[![CI](https://github.com/Giorgoskokk06/personal-os-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/Giorgoskokk06/personal-os-starter/actions/workflows/ci.yml)
+
 Minimal, self-contained starter kit for a local-first AI memory engine, FastMCP control plane, symbolic AST repo mapper, and 3-layer autonomous operations pipeline backed by PostgreSQL 17 (`pgvector`) and YAML state files.
 
 Prompt rules alone are unreliable for enforcing hard limits on weekly workload, spending gates, prompt-injection isolation, or state concurrency. This repo moves those checks into deterministic Python and PostgreSQL so an agent host cannot bypass them.
