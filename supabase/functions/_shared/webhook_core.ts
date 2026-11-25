@@ -93,7 +93,7 @@ export function createPersonalOsBot(args: {
       can_join_groups: false,
       can_read_all_group_messages: false,
       supports_inline_queries: false,
-    },
+    } as unknown as Bot["botInfo"],
   });
 
   const reply = args.handlers?.replyFn ?? (async () => {});
